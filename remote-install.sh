@@ -1,21 +1,23 @@
 #!/bin/sh
 set -e
 
-# Determine the latest version of the Tailscale UDM package
+#get the latest available version number of unifios-tailscale
 LATEST_VERSION="${1:-$(curl -sSLq --ipv4 'https://api.github.com/repos/gridironsolutions/unifios-tailscale/releases' | jq -r '.[0].tag_name')}"
 
-# Setup a temporary directory to download the package
+#create temporary directory
 TMP="$(mktemp -d || exit 1)"
+
+#delete temporary directory when finished
 trap 'rm -rf ${TMP}' EXIT
 
-# Download the Tailscale-UDM package
-curl -sSLf --ipv4 -o "${TMP}/tailscale.tgz" "https://github.com/gridironsolutions/unifios-tailscale/releases/download/${LATEST_VERSION}/unifios-tailscale.tgz"
+#download the unifios-tailscale tarball
+curl -sSLf --ipv4 -o "${TMP}/unifios-tailscale.tgz" "https://github.com/gridironsolutions/unifios-tailscale/releases/download/${LATEST_VERSION}/unifios-tailscale.tgz"
 
-# Extract the package
+#extract the unifios-tailscale tarball
 tar xzf "${TMP}/unifios-tailscale.tgz" -C "/mnt/data/"
 
-# Run the setup script to ensure that Tailscale is installed
+#install tailscale
 /mnt/data/unifios-tailscale/unifios-tailscale.sh install
 
-# Start the tailscaled daemon
+#start unifios-tailscale
 /mnt/data/unifios-tailscale/unifios-tailscale.sh start
