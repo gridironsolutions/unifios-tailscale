@@ -4,7 +4,7 @@ RULE_PRIORITY="5225"
 SLEEP_INTERVAL="0.25"
 TABLE=-1
 
-function getDefaultRouteTable
+function getDefaultRouteTable() {
     /sbin/ip rule list priority 32766 | cut -d " " -f 4
 }
 
