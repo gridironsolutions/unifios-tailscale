@@ -19,6 +19,9 @@ tar xzf "${TMP}/unifios-tailscale.tgz" -C "/mnt/data/"
 #ensure root owns unifios-tailscale
 chown -R root:root /mnt/data/unifios-tailscale
 
+#make .sh files executable
+chmod +x /mnt/data/unifios-tailscale/*.sh
+
 #install tailscale
 /mnt/data/unifios-tailscale/unifios-tailscale.sh install
 
