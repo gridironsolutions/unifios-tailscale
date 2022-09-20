@@ -12,4 +12,4 @@
    curl -sSLq https://raw.githubusercontent.com/gridironsolutions/unifios-tailscale/master/remote-install.sh | sh
    ```
 3. Follow the on-screen steps to configure `tailscale` and connect it to your network.
-4. Confirm that `unifios-tailscale` is working by running `/mnt/data/unifios-tailscale/unifios-tailscale status`
+4. Confirm that `unifios-tailscale` is working by running `/mnt/data/unifios-tailscale/unifios-tailscale.sh status`
