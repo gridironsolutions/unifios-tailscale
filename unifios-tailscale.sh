@@ -59,6 +59,9 @@ start_unifios_tailscale() {
     #start script that monitors changes to ip rules and marks all Tailscale packets
     ${UNIFIOS_TAILSCALE_ROOT}/ip-rule-monitor.sh > /dev/null 2>&1 &
 
+    #start script that notifies of failover events
+    ${UNIFIOS_TAILSCALE_ROOT}/wan-failover-monitor.sh > /dev/null 2>&1 &
+
     #save the process id of ip-rule-monitor.sh to a file so that this script can stop it at a later time
     echo ${!} > "${IP_RULE_MONITOR_PID_FILE}"
 
