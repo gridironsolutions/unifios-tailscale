@@ -52,7 +52,7 @@ get_device_status() {
 
 refresh_wan_details() {
     DEVICE_STATUS="$( get_device_status $( get_mac_address ) )"
-    if [ "${DEVICE_STATUS}" == "Unauthorized" ]
+    if [ "${DEVICE_STATUS}" = "Unauthorized" ]
     then
         logout_of_network
         login_to_network
@@ -105,11 +105,11 @@ do
     ACTIVE_WAN_IP=$( get_active_wan_ip )
     refresh_wan_details
 
-    if [ "${ACTIVE_WAN_INTERFACE}" == "${SECONDARY_WAN_INTERFACE}" ]
+    if [ "${ACTIVE_WAN_INTERFACE}" = "${SECONDARY_WAN_INTERFACE}" ]
     then
         log "${FAILOVER_LOG}" "FAILOVER: ACTIVE_WAN_INTERFACE=${ACTIVE_WAN_INTERFACE}:${ACTIVE_WAN_IP}"
         email "${MAIL_TO_PREFIX}${LOCATION_ID}@${MAIL_TO_DOMAIN}" "Internet Failover (${LOCATION_ID})" "Your primary internet connection has failed over to your backup connection. Expect a degraded Internet experience until your primary connection is back online.  If you continue to see failover events it is an indication that your primary connection is unreliable at the moment."
-    elif [ "${ACTIVE_WAN_INTERFACE}" == "${PRIMARY_WAN_INTERFACE}" ]
+    elif [ "${ACTIVE_WAN_INTERFACE}" = "${PRIMARY_WAN_INTERFACE}" ]
     then
         log "${FAILOVER_LOG}" "FAILBACK: ACTIVE_WAN_INTERFACE=${ACTIVE_WAN_INTERFACE}:${ACTIVE_WAN_IP}"
         email "${MAIL_TO_PREFIX}${LOCATION_ID}@${MAIL_TO_DOMAIN}" "Internet Failback (${LOCATION_ID})" "Your primary internet connection is back online. If you continue to see failover events it is an indication that your primary connection is unreliable at the moment."
