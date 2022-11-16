@@ -4,11 +4,11 @@ RULE_PRIORITY="5225"
 SLEEP_INTERVAL="0.25"
 TABLE=-1
 
-function getDefaultRouteTable() {
+getDefaultRouteTable() {
     /sbin/ip rule list priority 32766 | cut -d " " -f 4
 }
 
-function updateTailscaleMarkingRule() {
+updateTailscaleMarkingRule() {
     #if default route table changed then update ip rules accordingly
     if [ ! $TABLE -eq $1 ] && [ $1 -gt 0 ]
     then
