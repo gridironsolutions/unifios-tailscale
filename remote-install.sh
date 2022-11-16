@@ -16,6 +16,9 @@ curl -sSLf --ipv4 -o "${TMP}/unifios-tailscale.tgz" "https://github.com/gridiron
 #extract the unifios-tailscale tarball
 tar xzf "${TMP}/unifios-tailscale.tgz" -C "/mnt/data/"
 
+#create .env from .env.sample if it doesn't exist
+cp -n "/mnt/data/unifios-tailscale/.env.sample" "/mnt/data/unifios-tailscale/.env"
+
 #ensure root owns unifios-tailscale
 chown -R root:root /mnt/data/unifios-tailscale
 
