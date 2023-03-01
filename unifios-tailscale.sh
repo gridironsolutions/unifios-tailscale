@@ -1,14 +1,14 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 SCRIPT_NAME=${0}
 COMMAND=${1}
 SELECTED_VERSION=${2:-"-1"}
-PERSISTENT_ROOT="/mnt/data"
+PERSISTENT_ROOT="/data"
 IP_RULE_MONITOR_PID_FILE="/run/ip-rule-monitor.pid"
 WAN_FAILOVER_MONITOR_PID_FILE="/run/wan-failover-monitor.pid"
 UNIFIOS_TAILSCALE_ROOT="${UNIFIOS_TAILSCALE_ROOT:-${PERSISTENT_ROOT}/unifios-tailscale}"
-TAILSCALE="${UNIFIOS_TAILSCALE_ROOT}/tailscale"
-TAILSCALED="${UNIFIOS_TAILSCALE_ROOT}/tailscaled"
+TAILSCALE="/usr/bin/tailscale"
+TAILSCALED="/usr/sbin/tailscaled"
 TAILSCALED_SOCK="${TAILSCALED_SOCK:-/var/run/tailscale/tailscaled.sock}"
 TAILSCALED_LOG_FILE="${UNIFIOS_TAILSCALE_ROOT}/tailscaled.log"
 . "${UNIFIOS_TAILSCALE_ROOT}/.env"
@@ -17,69 +17,70 @@ DEFAULT_TAILSCALE_FLAGS="--advertise-exit-node --advertise-routes=${SUBNETS} --s
 TAILSCALE_FLAGS="${TAILSCALE_FLAGS:-${DEFAULT_TAILSCALE_FLAGS}}"
 
 install_tailscale() {
+    echo "Installing unifios-tailscale..."
+
     #get latest Tailscale version number
     ARG1=${1}
     if [ "x${1}" = "x-1" ]
     then
         unset ARG1
     fi
-    LATEST_TAILSCALE_VERSION="${ARG1:-$(curl -sSLq --ipv4 'https://pkgs.tailscale.com/stable/?mode=json' | jq -r '.Tarballs.arm64 | capture("tailscale_(?<version>[^_]+)_").version')}"
+    TAILSCALE_VERSION="${ARG1:-$(curl -sSLq --ipv4 'https://pkgs.tailscale.com/stable/?mode=json' | jq -r '.Tarballs.arm64 | capture("tailscale_(?<version>[^_]+)_").version')}"
 
-    #create temporary directory
-    TMP="$(mktemp -d || exit 1)"
+    #install Tailscale package repository
+    if [ ! -f "/etc/apt/sources.list.d/tailscale.list" ]; then
+        # shellcheck source=tests/os-release
+        . /etc/os-release
 
-    #path to Tailscale tarball
-    TAILSCALE_TARBALL="${TMP}/tailscale.tgz"
+        echo "Installing Tailscale package repository."
+        curl -fsSL --ipv4 "https://pkgs.tailscale.com/stable/${ID}/${VERSION_CODENAME}.gpg" | apt-key add -
+        curl -fsSL --ipv4 "https://pkgs.tailscale.com/stable/${ID}/${VERSION_CODENAME}.list" | tee /etc/apt/sources.list.d/tailscale.list
+    fi
 
-    #delete temporary directory when finished
-    trap 'rm -rf ${TMP}' EXIT
+    #update package lists
+    echo "Updating package lists."
+    apt update
 
-    echo "Tailscale v${LATEST_TAILSCALE_VERSION} is being installed in ${UNIFIOS_TAILSCALE_ROOT}..."
+    #install Tailscale
+    echo "Installing Tailscale ${TAILSCALE_VERSION}."
+    apt install -y tailscale="${TAILSCALE_VERSION}"
 
-    #download Tailscale tarball
-    curl -sSLf --ipv4 -o "${TAILSCALE_TARBALL}" "https://pkgs.tailscale.com/stable/tailscale_${LATEST_TAILSCALE_VERSION}_arm64.tgz" || {
-        echo "Tailscale v${LATEST_TAILSCALE_VERSION} failed to download from https://pkgs.tailscale.com/stable/tailscale_${LATEST_TAILSCALE_VERSION}_arm64.tgz"
-        echo "Ensure v${LATEST_TAILSCALE_VERSION} is a valid version and try again."
-
+    #configure Tailscale
+    echo "Configuring Tailscale."
+    sed -i 's/FLAGS=""/FLAGS="--port 41641 --socket \/var\/run\/tailscale\/tailscaled.sock --state \/data\/unifios-tailscale\/tailscaled.state"/' /etc/default/tailscaled || {
+        echo "Failed to configure Tailscale."
+        echo "Check that the file /etc/default/tailscaled exists and contains the line FLAGS=\"--port 41641 --socket /var/run/tailscale/tailscaled.sock --state /data/unifios-tailscale/tailscaled.state\"."
         exit 1
     }
 
-    #extract Tailscale to temporary directory
-    tar xzf "${TAILSCALE_TARBALL}" -C "${TMP}"
+    #restart Tailscale daemon to detect new configuration
+    stop_unifios_tailscale
+    start_unifios_tailscale
 
-    #create Tailscale installation directory
-    mkdir -p "${UNIFIOS_TAILSCALE_ROOT}"
-
-    #stop tailscale if a restart was requested by second parameter
-    if [ "x${2}" = "xRESTART" ]
-    then
-        stop_unifios_tailscale
-    fi
-
-    #copy Tailscale files to installation directory
-    cp "${TMP}/tailscale_${LATEST_TAILSCALE_VERSION}_arm64"/* "${UNIFIOS_TAILSCALE_ROOT}"
-
-    #copy launch file to automatically start unifios-tailscale
-    cp "${UNIFIOS_TAILSCALE_ROOT}/10-unifios-tailscale.sh" "${PERSISTENT_ROOT}/on_boot.d"
+    #enable Tailscale to start automatically during system startup
+    echo "Enabling Tailscale to start automatically during system startup."
+    systemctl enable tailscaled || {
+        echo "Failed to enable Tailscale to start automatically during system startup."
+        echo "You can enable it manually using 'systemctl enable tailscaled'."
+        exit 1
+    }
 
     #notify user that installation is complete
-    echo "Installation of Tailscale is complete."
+    echo "Installation of unifios-tailscale is complete."
+}
 
-    #start tailscale if a restart was requested by second parameter
-    if [ "x${2}" = "xRESTART" ]
-    then
-        start_unifios_tailscale
-    else
-        echo "Run '${SCRIPT_NAME} start' to start unifios-tailscale."
-    fi
-
+tailscale_is_running() {
+    systemctl is-active --quiet tailscaled
 }
 
 start_unifios_tailscale() {
     echo "Starting unifios-tailscale..."
 
     #link logrotate configuration file to /etc/logrotate.d
-    ln -s ${UNIFIOS_TAILSCALE_ROOT}/tailscale_logrotate.conf /etc/logrotate.d/tailscale_logrotate || true
+    if [ ! -e /etc/logrotate.d/tailscale_logrotate ]
+    then
+        ln -s ${UNIFIOS_TAILSCALE_ROOT}/tailscale_logrotate.conf /etc/logrotate.d/tailscale_logrotate || true
+    fi
 
     #start script that monitors changes to ip rules and marks all Tailscale packets
     ${UNIFIOS_TAILSCALE_ROOT}/ip-rule-monitor.sh > /dev/null 2>&1 &
@@ -98,45 +99,43 @@ start_unifios_tailscale() {
     echo "${ROUTES_TO_ADD}" | while read -r route; do /sbin/ip route add ${route} table 52; done
 
     #launch tailscaled
-    setsid $TAILSCALED \
-        --port "${PORT}" \
-        --socket "${TAILSCALED_SOCK}" \
-        --state "${UNIFIOS_TAILSCALE_ROOT}/tailscaled.state" \
-        ${TAILSCALED_FLAGS} >> "${TAILSCALED_LOG_FILE}" 2>&1 &
+    systemctl start tailscaled
 
     # Wait a few seconds for the daemon to start
     sleep 5
 
-    if [ -e "${TAILSCALED_SOCK}" ]; then
-        echo "unifios-tailscale started successfully."
+    if tailscale_is_running; then
+        echo "Tailscaled started successfully."
     else
-        echo "unifios-tailscale failed to start."
-
+        echo "Tailscaled failed to start."
         exit 1
     fi
 
     # Run tailscale up to configure
     echo "Running tailscale up to configure interface..."
+    # shellcheck disable=SC2086
     timeout 5 ${TAILSCALE} --socket ${TAILSCALED_SOCK} up $TAILSCALE_FLAGS
+
+    echo "unifios-tailscale started successfully."
 }
 
 stop_unifios_tailscale() {
     echo "Stopping unifios-tailscale..."
 
-    #run tailscale down
-    ${TAILSCALE} down || true
-
-    #kill all tailscaled processes
-    killall tailscaled 2> /dev/null || true
-
-    #run tailscaled cleanup
-    ${TAILSCALED} --cleanup
+    #stop tailscaled
+    systemctl stop tailscaled
 
     #get the process id of ip-rule-monitor.sh
-    read IP_RULE_MONITOR_PID < "${IP_RULE_MONITOR_PID_FILE}"
+    if [ -e "${IP_RULE_MONITOR_PID_FILE}" ]
+    then
+        read IP_RULE_MONITOR_PID < "${IP_RULE_MONITOR_PID_FILE}"
+    fi
 
     #get the process id of wan-failover-monitor.sh
-    read WAN_FAILOVER_MONITOR_PID < "${WAN_FAILOVER_MONITOR_PID_FILE}"
+    if [ -e "${WAN_FAILOVER_MONITOR_PID_FILE}" ]
+    then
+        read WAN_FAILOVER_MONITOR_PID < "${WAN_FAILOVER_MONITOR_PID_FILE}"
+    fi
 
     #kill ip-rule-monitor.sh
     pkill -f "ip-rule-monitor.sh" || true
@@ -145,18 +144,19 @@ stop_unifios_tailscale() {
     pkill -f "wan-failover-monitor.sh" || true
 
     #delete ip-rule-monitor.sh process id file
-    rm ${IP_RULE_MONITOR_PID_FILE}
+    rm -f ${IP_RULE_MONITOR_PID_FILE}
 
     #delete wan-failover-monitor.sh process id file
-    rm ${WAN_FAILOVER_MONITOR_PID_FILE}
+    rm -f ${WAN_FAILOVER_MONITOR_PID_FILE}
 
     #remove local network routes by flushing the route table used by Tailscale
     /sbin/ip route flush table 52
+
+    echo "unifios-tailscale is stopped."
 }
 
 tailscale_status() {
-    if [ -e "${TAILSCALED_SOCK}" ]
-    then
+    if tailscale_is_running; then
         echo "unifios-tailscale is running."
         ${TAILSCALE} --version
 
@@ -207,16 +207,24 @@ upgrade_tailscale() {
 }
 
 uninstall_tailscale() {
-    echo "Removing Tailscale..."
+    echo "Removing unifios-tailscale..."
 
-    #run tailscaled cleanup
-    ${TAILSCALED} --cleanup
+    #disable Tailscale from starting automatically during system startup
+    echo "Disabling Tailscale from starting automatically during system startup."
+    systemctl disable tailscaled || {
+        echo "Failed to disable Tailscale from starting automatically during system startup."
+        echo "You can disable it manually using 'systemctl disable tailscaled'."
+        exit 1
+    }
+
+    #remove tailscale package
+    apt remove -y tailscale
+    rm -f /etc/apt/sources.list.d/tailscale.list || true
 
     #remove unifios-tailscale installation directory
     rm -rf ${UNIFIOS_TAILSCALE_ROOT}
 
-    #remove auto-startup file
-    rm -f ${PERSISTENT_ROOT}/on_boot.d/10-unifios-tailscale.sh
+    echo "Uninstallation of unifios-tailscale is complete."
 }
 
 
@@ -238,7 +246,7 @@ case ${COMMAND} in
     "install")
         if [ -e "${TAILSCALE}" ]
         then
-            echo "Tailscale is already installed. Run '${SCRIPT_NAME} upgrade' to upgrade it."
+            echo "unifios-tailscale is already installed. Run '${SCRIPT_NAME} upgrade' to upgrade it."
 
             exit 0
         fi
@@ -262,7 +270,7 @@ case ${COMMAND} in
         . "${UNIFIOS_TAILSCALE_ROOT}/.env"
 
         if [ "${AUTOMATICALLY_UPGRADE_TAILSCALE}" = "true" ]; then
-            tailscale_upgrade_available && upgrade_tailscale || echo "Tailscale was not upgraded."
+            tailscale_upgrade_available && upgrade_tailscale || echo "unifios-tailscale was not upgraded."
         fi
 
         start_unifios_tailscale
